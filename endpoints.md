@@ -1,6 +1,6 @@
 # DIVINA API Endpoints
 
-Base URL: `http://<your-ip>:5000`
+Base URL: `http://192.168.1.63:5000`
 
 ---
 
