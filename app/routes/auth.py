@@ -18,14 +18,7 @@ def signup():
     email      = (data.get("email")      or "").strip().lower()
     password   =  data.get("password")   or ""
 
-    if not first_name or not last_name or not email or not password:
-        return jsonify({"error": "first name, last name, email, and password are required"}), 400
-    if len(first_name) < 2 or len(last_name) < 2:
-        return jsonify({"error": "First and last name must be at least 2 characters"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "Password must be at least 6 characters"}), 400
-    if "@" not in email:
-        return jsonify({"error": "Invalid email address"}), 400
+    check_if_empty(first_name, last_name, email, password)
 
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email already registered"}), 409
@@ -37,6 +30,15 @@ def signup():
     else:
         return _signup_regular(first_name, last_name, email, password)           
 
+def check_if_empty(first_name: str, last_name: str, email:str, password:str):
+    if not first_name or not last_name or not email or not password:
+        return jsonify({"error": "first name, last name, email, and password are required"}), 400
+    if len(first_name) < 2 or len(last_name) < 2:
+        return jsonify({"error": "First and last name must be at least 2 characters"}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+    if "@" not in email:
+        return jsonify({"error": "Invalid email address"}), 400
 
 def _signup_regular(first_name: str, last_name: str, email: str, password: str):
     user = User(
