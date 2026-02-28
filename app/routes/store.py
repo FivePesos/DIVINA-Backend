@@ -3,7 +3,7 @@ Store routes
     GET    /api/stores                        - list all active stores (public) # Done
     GET    /api/stores/map                    - all stores with coordinates for map #Done 
     GET    /api/stores/<id>                   - get store details with schedules #Done
-    POST   /api/stores                        - create store (approved dive operator only)
+    POST   /api/stores                        - create store (approved dive operator only) #Done
     PUT    /api/stores/<id>                   - update store (owner or admin)
     DELETE /api/stores/<id>                   - deactivate store (owner or admin)
 
@@ -141,3 +141,35 @@ def create_store():
         "store": store.to_dict(),
     }), 201
 
+@store_bp.route("/stores/<int:store_id>", methods=["PUT"])
+@jwt_required
+def update_store(store_id):
+
+    user = request.current_user
+    store = Store.query.get(store_id)
+
+    if not store:
+        return jsonify({"error": "Store not found"}), 404
+    if not _is_store_owner_or_admin(user, store):
+        return jsonify({"error": "Access denied"}), 403
+
+    data = request.get_json() or {}
+
+    if data.get("name"):
+        store.name = data["name"].strip()
+    if "description" in data:
+        store.description = data["description"].strip() or None
+    if "contact_number" in data:
+        store.contact_number = data["contact_number"].strip() or None
+    if "address" in data:
+        store.address = data["address"].strip() or None
+    if "latitude" in data:
+        store.latitude = float(data["latitude"]) if data["latitude"] else None
+    if "longitude" in data:
+        store.longitude = float(data["longitude"]) if data["longitude"] else None
+
+    db.session.commit()
+    return jsonify({
+        "message": "Store updated successfully",
+        "store": store.to_dict(),
+    }), 200
