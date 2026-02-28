@@ -1,8 +1,8 @@
 """
 Store routes
     GET    /api/stores                        - list all active stores (public) # Done
-    GET    /api/stores/map                    - all stores with coordinates for map
-    GET    /api/stores/<id>                   - get store details with schedules
+    GET    /api/stores/map                    - all stores with coordinates for map #Done 
+    GET    /api/stores/<id>                   - get store details with schedules #Done
     POST   /api/stores                        - create store (approved dive operator only)
     PUT    /api/stores/<id>                   - update store (owner or admin)
     DELETE /api/stores/<id>                   - deactivate store (owner or admin)
@@ -68,3 +68,11 @@ def get_stores_map():
             for s in stores
         ],
     }), 200
+
+@store_bp.route("/stores/<int:store_id>", methods=["GET"])
+def get_store(store_id):
+    """Get store details including active schedules."""
+    store = Store.query.get(store_id)
+    if not store or not store.is_active:
+        return jsonify({"error": "Store not found"}), 404
+    return jsonify({"store": store.to_dict(include_schedules=True)}), 200
