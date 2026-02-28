@@ -10,7 +10,7 @@ Booking routes
     GET    /api/bookings              - list all bookings (admin) or own bookings (user) #Done
     GET    /api/bookings/<id>         - get a specific booking #Done
     POST   /api/bookings              - create a new booking #Done
-    PUT    /api/bookings/<id>         - update a booking
+    PUT    /api/bookings/<id>         - update a booking #Done
     DELETE /api/bookings/<id>         - cancel a booking
     GET    /api/bookings/my           - get current user's bookings
 
@@ -126,3 +126,71 @@ def create_booking():
         "booking": booking.to_dict(),
     }), 201
 
+#/api/bookings/<id>  
+@booking_bp.route("/bookings/<int:booking_id>", methods=["PUT"])
+@jwt_required
+def update_booking(booking_id):
+    """
+    Update a booking's store, notes, or expiry date.
+    Users can only update their own bookings.
+    Cannot update expired or cancelled bookings.
+    """
+    user = request.current_user
+    booking= Booking.query.get(booking_id)
+
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 404
+    if user.role != UserRole.ADMIN and booking.user_id != user.id:
+        return jsonify({"error": "Access denied"}), 403
+    if booking.is_cancelled:
+        return jsonify({"error": "Cannot update a cancelled booking"}), 400
+    if booking.is_expired:
+        return jsonify({"error": "Cannot update an expired booking"}), 400
+    
+    data = request.get_json() or {}
+
+    if data.get("booked_store"):
+        booking.booked_store = data["booked_store"].strip()
+    if "notes" in data:
+        booking.notes = data["notes"].strip() or None
+    if data.get("expires_at"):
+        try:
+            new_expiry = datetime.fromisoformat(data["expires_at"])
+            if new_expiry.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+                return jsonify({"error": "expires_at must be a future date"}), 400
+            booking.expires_at = new_expiry
+            booking.is_expired = False
+        except ValueError:
+            return jsonify({"error": "Invalid expires_at format. Use ISO format: YYYY-MM-DDTHH:MM:SS"}), 400
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Booking updated successfully",
+        "booking": booking.to_dict(),
+    }), 200
+
+@booking_bp.route("/bookings/<int:booking_id>", methods=["DELETE"])
+@jwt_required
+def cancel_booking(booking_id):
+    """
+    Cancel a booking. Users can only cancel their own.
+    Admins can cancel any booking.
+    """
+    user =request.current_user
+    booking = Booking.query.get(booking_id)
+
+    if not booking:
+        return jsonify({"error": "Booking not found"}), 403 
+    if user.role != UserRole.ADMIN and booking.user_id != user.id:
+        return jsonify({"error": "Access Denied"}), 403
+    if booking.is_cancelled:
+        return jsonify({"error": "Booking is already cancelled"}), 400
+    
+    booking.is_cancelled = True
+    db.session.commit()
+
+    return jsonify({
+        "message": "Booking cancelled successfully",
+        "booking": booking.to_dict(),
+    }), 200
