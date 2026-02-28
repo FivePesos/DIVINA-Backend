@@ -1,6 +1,6 @@
 """
 Store routes
-    GET    /api/stores                        - list all active stores (public)
+    GET    /api/stores                        - list all active stores (public) # Done
     GET    /api/stores/map                    - all stores with coordinates for map
     GET    /api/stores/<id>                   - get store details with schedules
     POST   /api/stores                        - create store (approved dive operator only)
@@ -33,4 +33,38 @@ def get_all_stores():
     return jsonify({
         "total": len(stores),
         "stores": [s.to_dict() for s in stores],
+    }), 200
+
+@store_bp.route("/stores/map", methods=["GET"])
+def get_stores_map():
+    """
+    Return all active stores with coordinates for map display.
+    Only returns stores that have lat/lng set.
+    """
+    try:
+        stores = Store.query.filter(
+            Store.is_active == True,
+            Store.latitude != None,
+            Store.longitude != None,
+        ).all()
+    except Exception as e:
+        return jsonify({
+            "error", "Can't find Store"
+        }), 404
+
+    return jsonify({
+        "total": len(stores),
+        "stores": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "address": s.address,
+                "latitude": s.latitude,
+                "longitude": s.longitude,
+                "contact_number": s.contact_number,
+                "owner": s.owner.full_name if s.owner else None,
+            }
+            for s in stores
+        ],
     }), 200
