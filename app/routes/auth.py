@@ -10,6 +10,12 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/signup", methods=["POST"])
 def signup():
+    #For debugging
+    print("=== SIGNUP HIT ===")
+    print("CONTENT TYPE:", request.content_type)
+    print("FORM DATA:", request.form)
+    print("FILES:", request.files)
+
     is_multipart = request.content_type and "multipart/form-data" in request.content_type
     data = request.form if is_multipart else (request.get_json() or {})
 
@@ -18,7 +24,9 @@ def signup():
     email      = (data.get("email")      or "").strip().lower()
     password   =  data.get("password")   or ""
 
-    check_if_empty(first_name, last_name, email, password)
+    validation_error = check_if_empty(first_name, last_name, email, password)
+    if validation_error:
+        return validation_error
 
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email already registered"}), 409
@@ -26,19 +34,20 @@ def signup():
     is_dive_operator = str(data.get("is_dive_operator", "false")).lower() in ("true", "1", "yes")
 
     if is_dive_operator:
-        return _signup_dive_operator(first_name, last_name, email, password)  
+        return _signup_dive_operator( first_name, last_name, email, password)  
     else:
         return _signup_regular(first_name, last_name, email, password)           
 
 def check_if_empty(first_name: str, last_name: str, email:str, password:str):
     if not first_name or not last_name or not email or not password:
-        return jsonify({"error": "first name, last name, email, and password are required"}), 400
+        return (jsonify({"error": "first name, last name, email, and password are required"}), 400)
     if len(first_name) < 2 or len(last_name) < 2:
-        return jsonify({"error": "First and last name must be at least 2 characters"}), 400
+        return (jsonify({"error": "First and last name must be at least 2 characters"}), 400)
     if len(password) < 6:
-        return jsonify({"error": "Password must be at least 6 characters"}), 400
+        return (jsonify({"error": "Password must be at least 6 characters"}), 400)
     if "@" not in email:
-        return jsonify({"error": "Invalid email address"}), 400
+        return (jsonify({"error": "Invalid email address"}), 400)
+    return None
 
 def _signup_regular(first_name: str, last_name: str, email: str, password: str):
     user = User(
@@ -60,9 +69,15 @@ def _signup_regular(first_name: str, last_name: str, email: str, password: str):
 
 
 def _signup_dive_operator(first_name: str, last_name: str, email: str, password: str):  
+
+    # For debugging ra
+    print("FILES RECEIVED:", request.files) 
+    print("FORM DATA:", request.form)  
+
     bir_file  = request.files.get("bir_document")
     cert_file = request.files.get("certification_document")
-
+    
+    
     if not bir_file:
         return jsonify({"error": "bir_document is required for dive operator registration"}), 400
     if not cert_file:
