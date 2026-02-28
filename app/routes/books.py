@@ -11,8 +11,8 @@ Booking routes
     GET    /api/bookings/<id>         - get a specific booking #Done
     POST   /api/bookings              - create a new booking #Done
     PUT    /api/bookings/<id>         - update a booking #Done
-    DELETE /api/bookings/<id>         - cancel a booking
-    GET    /api/bookings/my           - get current user's bookings
+    DELETE /api/bookings/<id>         - cancel a booking #Done
+    GET    /api/bookings/my           - get current user's bookings #Done
 
 """
 DEFAULT_EXPIRY_DAYS = 7
@@ -193,4 +193,19 @@ def cancel_booking(booking_id):
     return jsonify({
         "message": "Booking cancelled successfully",
         "booking": booking.to_dict(),
+    }), 200
+
+@booking_bp.route("/booking/my", methods=["GET"])
+@jwt_required
+def my_bookings():
+    user = request.current_user
+    bookings = Booking.query.filter_by(user_id=user.id).order_by(Booking.created_at.desc()).all()
+
+    for b in bookings:
+        b.check_and_update_expiry()
+    db.session.commit()
+
+    return jsonify({
+        "total": len(bookings),
+        "bookings": [b.to_dict() for b in bookings],
     }), 200
