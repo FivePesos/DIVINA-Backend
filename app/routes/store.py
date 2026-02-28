@@ -21,3 +21,16 @@ from app.models.user import UserRole, VerificationStatus
 from app.utils.jwt_helper import jwt_required
 
 store_bp = Blueprint("stores", __name__)
+
+def _is_store_owner_or_admin(user, store):
+    return user.role == UserRole.ADMIN or store.owner_id == user.id
+
+
+@store_bp.route("/stores", methods=["GET"])
+def get_all_stores():
+
+    stores = Store.query.filter_bu(is_active=True).order_by(Store.created_at.desc()).all()
+    return jsonify({
+        "total": len(stores),
+        "stores": [s.to_dict() for s in stores],
+    }), 200
