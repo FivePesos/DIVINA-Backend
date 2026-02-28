@@ -7,8 +7,8 @@ from app.utils.jwt_helper import jwt_required
 """
 
 Booking routes
-    GET    /api/bookings              - list all bookings (admin) or own bookings (user) 
-    GET    /api/bookings/<id>         - get a specific booking
+    GET    /api/bookings              - list all bookings (admin) or own bookings (user) #Done
+    GET    /api/bookings/<id>         - get a specific booking #Done
     POST   /api/bookings              - create a new booking
     PUT    /api/bookings/<id>         - update a booking
     DELETE /api/bookings/<id>         - cancel a booking
@@ -52,5 +52,26 @@ def get_all_bookings():
         "total": len(bookings),
         "bookings": [b.to_dict() for b in bookings],
     }), 200
+
+
+#/api/bookings/<id>
+@booking_bp("/bookings/<int:booking_id>", methods=["GET"])
+@jwt_required
+def get_booking(booking_id):
+    """Get a specific booking by ID. Users can only view their own."""
+    user = request.current_user
+    booking = Booking.query.get(booking_id)
+
+    if not booking:
+        return jsonify({"error", "Booking not found"}), 404
+    
+    #Only admin can view
+    if user.role != UserRole.ADMIN and booking.user_id != user.id:
+        return jsonify({"error": "Access denied"}), 403
+    
+    booking.check_and_update_expiry()
+    db.session.commit()
+    
+    return jsonify({"booking": booking.to_dict()}), 200
 
 
