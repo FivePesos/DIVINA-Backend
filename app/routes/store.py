@@ -173,3 +173,19 @@ def update_store(store_id):
         "message": "Store updated successfully",
         "store": store.to_dict(),
     }), 200
+
+@store_bp.route("/stores/<int:store_id>", methods=["DELETE"])
+@jwt_required
+def deactivate_store(store_id):
+    """Deactivate a store. Only owner or admin."""
+    user = request.current_user
+    store = Store.query.get(store_id)
+
+    if not store:
+        return jsonify({"error": "Store not found"}), 404
+    if not _is_store_owner_or_admin(user, store):
+        return jsonify({"error": "Access denied"}), 403
+
+    store.is_active = False
+    db.session.commit()
+    return jsonify({"message": f"Store '{store.name}' has been deactivated"}), 200
