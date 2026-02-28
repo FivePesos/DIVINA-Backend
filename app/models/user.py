@@ -41,6 +41,7 @@ class User(db.Model):
     def check_password(self, password: str) -> bool:
         return bcrypt.check_password_hash(self.password_hash, password)
     
+    @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
 
@@ -72,7 +73,7 @@ class User(db.Model):
             })
         return base
 
-    def __repr__(self):                                          # ← fixed
+    def __repr__(self):                                         
         return f"<User {self.first_name} {self.last_name} [{self.role}]>"
 
 
