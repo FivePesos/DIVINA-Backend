@@ -4,8 +4,8 @@ Store routes
     GET    /api/stores/map                    - all stores with coordinates for map #Done 
     GET    /api/stores/<id>                   - get store details with schedules #Done
     POST   /api/stores                        - create store (approved dive operator only) #Done
-    PUT    /api/stores/<id>                   - update store (owner or admin)
-    DELETE /api/stores/<id>                   - deactivate store (owner or admin)
+    PUT    /api/stores/<id>                   - update store (owner or admin) #Done
+    DELETE /api/stores/<id>                   - deactivate store (owner or admin) #Done
 
 Schedule routes
     GET    /api/stores/<id>/schedules         - list schedules for a store
@@ -189,3 +189,31 @@ def deactivate_store(store_id):
     store.is_active = False
     db.session.commit()
     return jsonify({"message": f"Store '{store.name}' has been deactivated"}), 200
+
+@store_bp.route("/stores/<int:store_id>/schedules", methods=["GET"])
+def get_schedules(store_id):
+    """
+    List all available schedules for a store.
+    Optional: ?date=2026-03-15 to filter by date
+    """
+    store = Store.query.get(store_id)
+    if not store or not store.is_active:
+        return jsonify({"error": "Store not found"}), 404
+
+    date_filter = request.args.get("date")
+    query = DivingSchedule.query.filter_by(store_id=store_id, is_active=True, is_cancelled=False)
+
+    if date_filter:
+        try:
+            filter_date = date.fromisoformat(date_filter)
+            query = query.filter_by(date=filter_date)
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+    schedules = query.order_by(DivingSchedule.date, DivingSchedule.start_time).all()
+
+    return jsonify({
+        "store": store.name,
+        "total": len(schedules),
+        "schedules": [s.to_dict() for s in schedules],
+    }), 200
