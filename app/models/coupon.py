@@ -105,14 +105,14 @@ class CouponRedemption(db.Model):
     __tablename__ = "coupon_redemptions"
 
     id = db.Column(db.Integer, primary_key=True)
-    coupon_id  = db.Column(db.Integer, db.ForeignKey("coupons.id"), nullable=False)
-    user_id    = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    coupon_id = db.Column(db.Integer, db.ForeignKey("coupons.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     booking_id = db.Column(db.Integer, db.ForeignKey("bookings.id"), nullable=False)
 
-    original_price   = db.Column(db.Float, nullable=False)
+    original_price = db.Column(db.Float, nullable=False)
     discount_applied = db.Column(db.Float, nullable=False)
-    final_price      = db.Column(db.Float, nullable=False)
-    redeemed_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    final_price = db.Column(db.Float, nullable=False)
+    redeemed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
         return {
@@ -126,5 +126,16 @@ class CouponRedemption(db.Model):
             "final_price": self.final_price,
             "redeemed_at": self.redeemed_at.isoformat(),
         }
-
+    
+def generate_coupon_code(prefix: str = "", length: int = 8) -> str:
+    """
+    Generate a random alphanumeric coupon code.
+    Examples:
+        generate_coupon_code()              → "X7KM2NQP"
+        generate_coupon_code("DIVE")        → "DIVEX7KM2N"
+        generate_coupon_code("SUMMER", 6)  → "SUMMER4KX8NQ"
+    """
+    chars = string.ascii_uppercase + string.digits
+    random_part = "".join(random.choices(chars, k=length))
+    return f"{prefix}{random_part}" if prefix else random_part
 
