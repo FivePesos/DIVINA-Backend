@@ -177,37 +177,26 @@ def update_booking(booking_id):
 @booking_bp.route("/bookings/<int:booking_id>", methods=["DELETE"])
 @jwt_required
 def cancel_booking(booking_id):
-    """
-    Cancel a booking. Users can only cancel their own.
-    Admins can cancel any booking.
-    """
-    user =request.current_user
+    """Cancel a booking and restore the slot count."""
+    user = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
-        return jsonify({"error": "Booking not found"}), 403 
+        return jsonify({"error": "Booking not found"}), 404
     if user.role != UserRole.ADMIN and booking.user_id != user.id:
-        return jsonify({"error": "Access Denied"}), 403
+        return jsonify({"error": "Access denied"}), 403
     if booking.is_cancelled:
         return jsonify({"error": "Booking is already cancelled"}), 400
-    
+
+    # Restore slots
+    schedule = booking.schedule
+    if schedule:
+        schedule.booked_slots = max(0, schedule.booked_slots - booking.slots)
+
     booking.is_cancelled = True
     db.session.commit()
 
     return jsonify({
         "message": "Booking cancelled successfully",
         "booking": booking.to_dict(),
-    }), 200
-
-@booking_bp.route("/bookings/my", methods=["GET"])
-@jwt_required
-def my_bookings():
-    """Get current logged-in user's bookings."""
-    bookings = Booking.query.filter_by(
-        user_id=request.current_user.id
-    ).order_by(Booking.created_at.desc()).all()
-
-    return jsonify({
-        "total": len(bookings),
-        "bookings": [b.to_dict() for b in bookings],
     }), 200
