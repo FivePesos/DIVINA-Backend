@@ -289,3 +289,16 @@ def update_coupon(coupon_id):
         "message": f"Coupon '{coupon.code}' updated",
         "coupon": coupon.to_dict(include_private=True),
     }), 200
+
+@admin_coupon_bp.route("/coupons/<int:coupon_id>", methods=["DELETE"])
+@admin_required
+def deactivate_coupon(coupon_id):
+    """Deactivate a coupon (soft delete)."""
+    coupon = Coupon.query.get(coupon_id)
+    if not coupon:
+        return jsonify({"error": "Coupon not found"}), 404
+
+    coupon.is_active = False
+    db.session.commit()
+
+    return jsonify({"message": f"Coupon '{coupon.code}' has been deactivated"}), 200
