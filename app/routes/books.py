@@ -39,6 +39,19 @@ def get_all_bookings():
         "bookings": [b.to_dict() for b in bookings],
     }), 200
 
+#/api/bookings/my   
+@booking_bp.route("/bookings/my", methods=["GET"])
+@jwt_required
+def my_bookings():
+    """Get current logged-in user's bookings."""
+    bookings = Booking.query.filter_by(
+        user_id=request.current_user.id
+    ).order_by(Booking.created_at.desc()).all()
+
+    return jsonify({
+        "total": len(bookings),
+        "bookings": [b.to_dict() for b in bookings],
+    }), 200
 
 #/api/bookings/<id>
 @booking_bp.route("/bookings/<int:booking_id>", methods=["GET"])
