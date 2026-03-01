@@ -123,14 +123,18 @@ def _signup_dive_operator(first_name: str, last_name: str, email: str, password:
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
-    data = request.get_json() or {}
-    email    = (data.get("email") or "").strip().lower()  
+    """
+    Login with email and password.
+    Dive operators get a warning in the response if pending or rejected.
+    """
+    data     = request.get_json() or {}
+    email    = (data.get("email") or "").strip().lower()
     password =  data.get("password") or ""
 
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
 
-    user = User.query.filter_by(email=email).first()  
+    user = User.query.filter_by(email=email).first()
 
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid credentials"}), 401
@@ -138,12 +142,18 @@ def login():
         return jsonify({"error": "Account is deactivated"}), 403
 
     extra = {}
-    if user.is_dive_operator and user.verification_status == VerificationStatus.PENDING:
-        extra["warning"] = "Your dive operator account is still pending verification."
-    elif user.is_dive_operator and user.verification_status == VerificationStatus.REJECTED:
-        extra["warning"] = (
-            f"Your account was rejected: {user.rejection_reason or 'No reason provided.'}"
-        )
+    if user.is_dive_operator:
+        if user.verification_status == VerificationStatus.PENDING:
+            extra["warning"] = "Your dive operator account is still pending admin verification."
+            extra["verification_status"] = VerificationStatus.PENDING
+        elif user.verification_status == VerificationStatus.REJECTED:
+            extra["warning"] = (
+                f"Your dive operator account was rejected: "
+                f"{user.rejection_reason or 'No reason provided.'}"
+            )
+            extra["verification_status"] = VerificationStatus.REJECTED
+        elif user.verification_status == VerificationStatus.APPROVED:
+            extra["verification_status"] = VerificationStatus.APPROVED
 
     tokens = generate_tokens(user.id)
     return jsonify({
@@ -156,6 +166,7 @@ def login():
 
 @auth_bp.route("/refresh", methods=["POST"])
 def refresh():
+    """Issue a new access token using a valid refresh token."""
     data = request.get_json() or {}
     refresh_token = data.get("refresh_token")
 
