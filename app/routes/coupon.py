@@ -302,3 +302,89 @@ def deactivate_coupon(coupon_id):
     db.session.commit()
 
     return jsonify({"message": f"Coupon '{coupon.code}' has been deactivated"}), 200
+
+@coupon_bp.route("/coupons/validate", methods["POST"])
+@jwt_required
+def validate_coupon():
+    """
+    Validate a coupon code before booking.
+    Returns the discount amount if valid.
+
+    Request body:
+    {
+        "code":        "DIVE20",
+        "schedule_id": 3
+    }
+    """
+    user = request.current_user
+    data = request.get_json() or {}
+
+    code        = (data.get("code") or "").strip().upper()
+    schedule_id = data.get("schedule_id")
+
+    if not code:
+        return jsonify({"error": "Coupon code is required"}), 400
+    if not schedule_id:
+        return jsonify({"error": "schedule_id is required"}), 400
+
+    # Find coupon
+    coupon = Coupon.query.filter_by(code=code).first()
+    if not coupon:
+        return jsonify({"error": "Invalid coupon code"}), 404
+
+    # Check if valid
+    if not coupon.is_active:
+        return jsonify({"error": "This coupon is no longer active"}), 400
+    if coupon.is_expired:
+        return jsonify({"error": "This coupon has expired"}), 400
+    if coupon.is_exhausted:
+        return jsonify({"error": "This coupon has reached its usage limit"}), 400
+
+    # Check valid_from
+    now = datetime.now(timezone.utc)
+    valid_from = coupon.valid_from.replace(tzinfo=timezone.utc) if coupon.valid_from.tzinfo is None else coupon.valid_from
+    if now < valid_from:
+        return jsonify({"error": f"This coupon is not valid until {coupon.valid_from.strftime('%b %d, %Y')}"}), 400
+
+    # Check per-user usage limit
+    user_uses = CouponRedemption.query.filter_by(
+        coupon_id=coupon.id, user_id=user.id
+    ).count()
+    if user_uses >= coupon.uses_per_user:
+        return jsonify({"error": "You have already used this coupon the maximum number of times"}), 400
+
+    # Get the schedule to check price and scope
+    schedule = DivingSchedule.query.get(schedule_id)
+    if not schedule:
+        return jsonify({"error": "Schedule not found"}), 404
+
+    original_price = schedule.price * 1  # price per slot
+
+    # Check scope
+    if coupon.scope == "store" and schedule.store_id != coupon.store_id:
+        return jsonify({"error": "This coupon is only valid for a specific store"}), 400
+    if coupon.scope == "schedule" and schedule.id != coupon.schedule_id:
+        return jsonify({"error": "This coupon is only valid for a specific schedule"}), 400
+
+    # Check minimum price
+    if coupon.min_price and original_price < coupon.min_price:
+        return jsonify({
+            "error": f"This coupon requires a minimum booking price of ₱{coupon.min_price:,.2f}",
+            "min_price": coupon.min_price,
+        }), 400
+
+    # Compute discount
+    discount_amount = coupon.compute_discount(original_price)
+    final_price     = original_price - discount_amount
+
+    return jsonify({
+        "valid": True,
+        "code": coupon.code,
+        "description": coupon.description,
+        "discount_type": coupon.discount_type,
+        "discount_value": coupon.discount_value,
+        "original_price": original_price,
+        "discount_amount": round(discount_amount, 2),
+        "final_price": round(final_price, 2),
+        "savings": f"You save ₱{discount_amount:,.2f}!",
+    }), 200
