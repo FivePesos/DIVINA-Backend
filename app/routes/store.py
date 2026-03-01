@@ -10,8 +10,8 @@ Store routes
 Schedule routes
     GET    /api/stores/<id>/schedules         - list schedules for a store # Done
     POST   /api/stores/<id>/schedules         - add schedule (owner or admin) # Done
-    PUT    /api/stores/<id>/schedules/<sid>   - update schedule (owner or admin)
-    DELETE /api/stores/<id>/schedules/<sid>   - cancel schedule (owner or admin)
+    PUT    /api/stores/<id>/schedules/<sid>   - update schedule (owner or admin) #Done
+    DELETE /api/stores/<id>/schedules/<sid>   - cancel schedule (owner or admin) #Done 
 """
 from datetime import datetime, date, time
 from flask import Blueprint, request, jsonify
@@ -308,3 +308,29 @@ def create_schedule(store_id):
         "message": f"Schedule '{title}' added successfully",
         "schedule": schedule.to_dict(),
     }), 201
+
+@store_bp.route("/stores/<int:store_id>/schedules/<int:schedule_id>", methods=["DELETE"])
+@jwt_required
+def cancel_schedule(store_id, schedule_id):
+    """Cancel a diving schedule. Only store owner or admin."""
+    user = request.current_user
+    store = Store.query.get(store_id)
+    schedule = DivingSchedule.query.filter_by(id=schedule_id, store_id=store_id).first()
+
+    if not store:
+        return jsonify({"error": "Store not found"}), 404
+    if not schedule:
+        return jsonify({"error": "Schedule not found"}), 404
+    if not _is_store_owner_or_admin(user, store):
+        return jsonify({"error": "Access denied"}), 403
+    if schedule.is_cancelled:
+        return jsonify({"error": "Schedule is already cancelled"}), 400
+
+    schedule.is_cancelled = True
+    schedule.is_active = False
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Schedule '{schedule.title}' has been cancelled",
+        "schedule": schedule.to_dict(),
+    }), 200
