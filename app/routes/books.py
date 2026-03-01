@@ -20,33 +20,20 @@ booking_bp = Blueprint("bookings", __name__)
 #/api/bookings 
 #list all bookings
 @booking_bp.route("/bookings", methods=["GET"])
+@jwt_required
 def get_all_bookings():
-    """
-    Admin: returns all bookings.
-    Regular user / dive operator: returns only their own bookings.
-    """
+    """Admin sees all bookings. Regular users see only their own."""
     user = request.current_user
-    status = request.args.get("status") #?status=
+    status = request.args.get("status")  # active | cancelled
 
-    if user.role == UserRole.ADMIN:
-        query = Booking.query
-    else:
-        query = Booking.query.filter_by(user_id=user.id)
+    query = Booking.query if user.role == UserRole.ADMIN else Booking.query.filter_by(user_id=user.id)
 
     if status == "active":
-        query = query.filter_by(is_expired=False, is_cancelled=False) # returns only bookings where is_expired=False AND is_cancelled=False
-    elif status == "expired":
-        query = query.filter_by(is_expired=True) # returns only bookings where is_expired=True
+        query = query.filter_by(is_cancelled=False)
     elif status == "cancelled":
-        query = query.filter_by(is_cancelled=True) # return only booking where is_cancelled=True
+        query = query.filter_by(is_cancelled=True)
 
     bookings = query.order_by(Booking.created_at.desc()).all()
-
-     # Auto-update expiry status before returning
-    for b in bookings:
-        b.check_and_update_expiry()
-    db.session.commit()
-
     return jsonify({
         "total": len(bookings),
         "bookings": [b.to_dict() for b in bookings],
