@@ -34,7 +34,7 @@ def list_dive_operators():
     Defaults to showing PENDING operators first.
     Optional: ?status=pending|approved|rejected|all
     """
-    status = request.args.get("status", "pending")  # ✅ defaults to pending
+    status = request.args.get("status", "pending")  
 
     query = User.query.filter_by(role=UserRole.DIVE_OPERATOR)
 
