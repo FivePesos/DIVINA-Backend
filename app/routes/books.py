@@ -1,19 +1,17 @@
-from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify
+from datetime import datetime, timezone
 from app import db
 from app.models.books import Booking
+from app.models.store import DivingSchedule
 from app.models.user import UserRole
 from app.utils.jwt_helper import jwt_required
 """
-
-Booking routes
-    GET    /api/bookings              - list all bookings (admin) or own bookings (user) #Done
-    GET    /api/bookings/<id>         - get a specific booking #Done
-    POST   /api/bookings              - create a new booking #Done
-    PUT    /api/bookings/<id>         - update a booking #Done
-    DELETE /api/bookings/<id>         - cancel a booking #Done
-    GET    /api/bookings/my           - get current user's bookings #Done
-
+Booking routes — users book a specific diving schedule
+    GET    /api/bookings              - list bookings (admin=all, user=own)
+    GET    /api/bookings/my           - current user's bookings
+    GET    /api/bookings/<id>         - get specific booking
+    POST   /api/bookings              - create booking for a schedule
+    DELETE /api/bookings/<id>         - cancel booking
 """
 DEFAULT_EXPIRY_DAYS = 7
 booking_bp = Blueprint("bookings", __name__)
