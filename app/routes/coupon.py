@@ -260,3 +260,32 @@ def get_coupon(coupon_id):
         "coupon": coupon.to_dict(include_private=True),
         "redemptions": [r.to_dict() for r in redemptions],
     }), 200
+
+@admin_coupon_bp("/coupons/<int:coupon_id>", methods=["PUT"])
+@admin_required
+def update_coupon(coupon_id):
+    """Update a coupon's settings."""
+    coupon = Coupon.query.get(coupon_id)
+    if not coupon:
+        return jsonify({"error": "Coupon not found"}), 404
+
+    data = request.get_json() or {}
+
+    if "description" in data: coupon.description = data["description"]
+    if "discount_value" in data: coupon.discount_value = float(data["discount_value"])
+    if "min_price" in data: coupon.min_price = float(data["min_price"])
+    if "max_discount" in data: coupon.max_discount = float(data["max_discount"]) if data["max_discount"] else None
+    if "max_uses" in data: coupon.max_uses = int(data["max_uses"]) if data["max_uses"] else None
+    if "uses_per_user" in data: coupon.uses_per_user = int(data["uses_per_user"])
+    if "is_active" in data: coupon.is_active = bool(data["is_active"])
+    if "valid_until" in data:
+        try:
+            coupon.valid_until = datetime.fromisoformat(data["valid_until"]) if data["valid_until"] else None
+        except ValueError:
+            return jsonify({"error": "Invalid valid_until format"}), 400
+
+    db.session.commit()
+    return jsonify({
+        "message": f"Coupon '{coupon.code}' updated",
+        "coupon": coupon.to_dict(include_private=True),
+    }), 200
