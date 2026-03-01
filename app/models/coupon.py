@@ -12,7 +12,6 @@ class Coupon(db.Model):
     discount_type = db.Column(db.String(20), nullable=False, default="percentage")
     discount_value = db.Column(db.Float, nullable=False)
 
-
     min_price = db.Column(db.Float, nullable=True, default=500)  # minimum booking amount to USE coupon
     max_discount = db.Column(db.Float, nullable=True)
 
@@ -53,7 +52,7 @@ class Coupon(db.Model):
     @property
     def remaining_uses(self):
         if self.max_uses is None:
-            return None  # unlimited
+            return None  
         return max(0, self.max_uses - self.total_used)
 
     def compute_discount(self, original_price: float) -> float:
@@ -62,7 +61,7 @@ class Coupon(db.Model):
             discount = original_price * (self.discount_value / 100)
             if self.max_discount:
                 discount = min(discount, self.max_discount)
-        else:  # fixed
+        else:  
             discount = self.discount_value
 
         return min(discount, original_price)  # can't discount more than price
