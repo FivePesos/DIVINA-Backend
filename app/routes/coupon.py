@@ -88,8 +88,7 @@ def create_coupon():
             return jsonify({"error": "Fixed discount must be greater than 0"}), 400
     except (ValueError, TypeError):
         return jsonify({"error": "Invalid discount_value"}), 400
-
-    # Scope validation
+    
     scope = data.get("scope", "global")
     if scope not in ("global", "store", "schedule"):
         return jsonify({"error": "scope must be 'global', 'store', or 'schedule'"}), 400
@@ -102,7 +101,6 @@ def create_coupon():
     if scope == "schedule" and not schedule_id:
         return jsonify({"error": "schedule_id is required when scope is 'schedule'"}), 400
 
-    # Parse dates
     valid_from  = datetime.now(timezone.utc)
     valid_until = None
 
@@ -121,20 +119,20 @@ def create_coupon():
             return jsonify({"error": "Invalid valid_until format. Use ISO: YYYY-MM-DD"}), 400
 
     coupon = Coupon(
-        code           = code,
-        description    = (data.get("description") or "").strip() or None,
-        discount_type  = discount_type,
+        code = code,
+        description = (data.get("description") or "").strip() or None,
+        discount_type = discount_type,
         discount_value = discount_value,
-        min_price      = float(data.get("min_price") or 0),
-        max_discount   = float(data["max_discount"]) if data.get("max_discount") else None,
-        scope          = scope,
-        store_id       = int(store_id) if store_id else None,
-        schedule_id    = int(schedule_id) if schedule_id else None,
-        max_uses       = int(data["max_uses"]) if data.get("max_uses") else None,
-        uses_per_user  = int(data.get("uses_per_user", 1)),
-        valid_from     = valid_from,
-        valid_until    = valid_until,
-        created_by     = user.id,
+        min_price = float(data.get("min_price") or 0),
+        max_discount = float(data["max_discount"]) if data.get("max_discount") else None,
+        scope = scope,
+        store_id = int(store_id) if store_id else None,
+        schedule_id = int(schedule_id) if schedule_id else None,
+        max_uses = int(data["max_uses"]) if data.get("max_uses") else None,
+        uses_per_user = int(data.get("uses_per_user", 1)),
+        valid_from = valid_from,
+        valid_until = valid_until,
+        created_by = user.id,
     )
 
     db.session.add(coupon)
@@ -144,3 +142,121 @@ def create_coupon():
         "message": f"Coupon '{code}' created successfully",
         "coupon": coupon.to_dict(include_private=True),
     }), 201
+
+@admin_coupon_bp.route("/coupons/generate", methods=["POST"])
+@admin_required
+def generate_bulk_coupons():
+    """
+    Auto-generate multiple unique coupon codes at once.
+    Useful for promotions, events, giveaways.
+
+    Request body:
+    {
+        "count":          10,          // how many coupons to generate
+        "prefix":         "DIVE",      // optional code prefix
+        "discount_type":  "percentage",
+        "discount_value": 15.0,
+        "max_uses":       1,           // each code = single use
+        "valid_until":    "2026-12-31"
+        // all other Coupon fields are optional
+    }
+    """
+    user = request.current_user
+    data = request.get_json() or {}
+
+    count = int(data.get("count", 1))
+    if count < 1 or count > 500:
+        return jsonify({"error": "count must be between 1 and 500"}), 400
+
+    discount_type = data.get("discount_type", "percentage")
+    discount_value = float(data.get("discount_value", 10))
+    prefix = (data.get("prefix") or "").strip().upper()
+    max_uses = int(data["max_uses"]) if data.get("max_uses") else 1
+    valid_until = None
+
+    if data.get("valid_until"):
+        try:
+            valid_until = datetime.fromisoformat(data["valid_until"])
+        except ValueError:
+            return jsonify({"error": "Invalid valid_until format"}), 400
+
+    generated = []
+    attempts  = 0
+
+    while len(generated) < count and attempts < count * 5:
+        attempts += 1
+        code = generate_coupon_code(prefix=prefix, length=8)
+        if Coupon.query.filter_by(code=code).first():
+            continue  # skip duplicates
+
+        coupon = Coupon(
+            code = code,
+            description = data.get("description"),
+            discount_type = discount_type,
+            discount_value = discount_value,
+            min_price = float(data.get("min_price") or 0),
+            max_discount = float(data["max_discount"]) if data.get("max_discount") else None,
+            scope = data.get("scope", "global"),
+            store_id = data.get("store_id"),
+            schedule_id  = data.get("schedule_id"),
+            max_uses = max_uses,
+            uses_per_user = int(data.get("uses_per_user", 1)),
+            valid_from = datetime.now(timezone.utc),
+            valid_until = valid_until,
+            created_by = user.id,
+        )
+        db.session.add(coupon)
+        generated.append(coupon)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"{len(generated)} coupons generated successfully",
+        "coupons": [c.to_dict(include_private=True) for c in generated],
+        "codes": [c.code for c in generated],  
+    }), 201
+
+@admin_coupon_bp("/coupons", methods=["GET"])
+@admin_required
+def list_coupons():
+    """
+    List all coupons. Optional filters:
+    ?active=true|false
+    ?type=percentage|fixed
+    ?scope=global|store|schedule
+    """
+
+    query = Coupon.query
+
+    if request.args.get("active") == "true":
+        query = query.filter_by(is_active=True)
+    elif request.args.get("active") == "false":
+        query = query.filter_by(is_active=False)
+
+    if request.args.get("type"):
+        query = query.filter_by(discount_type=request.args["type"])
+
+    if request.args.get("scope"):
+        query = query.filter_by(scope=request.args["scope"])
+
+    coupons = query.order_by(Coupon.created_at.desc()).all()
+
+    return jsonify({
+        "total": len(coupons),
+        "coupons": [c.to_dict(include_private=True) for c in coupons],
+    }), 200
+
+@admin_coupon_bp.route("/coupons/<int:coupon_id>", methods=["GET"])
+@admin_required
+def get_coupon(coupon_id):
+    """Get a coupon's full details including all redemptions."""
+    coupon = Coupon.query.get(coupon_id)
+    if not coupon:
+        return jsonify({"error": "Coupon not found"}), 404
+
+    redemptions = CouponRedemption.query.filter_by(coupon_id=coupon_id).all()
+
+    return jsonify({
+        "coupon": coupon.to_dict(include_private=True),
+        "redemptions": [r.to_dict() for r in redemptions],
+    }), 200
