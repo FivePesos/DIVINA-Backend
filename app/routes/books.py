@@ -41,23 +41,18 @@ def get_all_bookings():
 
 
 #/api/bookings/<id>
-@booking_bp("/bookings/<int:booking_id>", methods=["GET"])
+@booking_bp.route("/bookings/<int:booking_id>", methods=["GET"])
 @jwt_required
 def get_booking(booking_id):
-    """Get a specific booking by ID. Users can only view their own."""
+    """Get a specific booking. Users can only view their own."""
     user = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
-        return jsonify({"error", "Booking not found"}), 404
-    
-    #Only admin can view
+        return jsonify({"error": "Booking not found"}), 404
     if user.role != UserRole.ADMIN and booking.user_id != user.id:
         return jsonify({"error": "Access denied"}), 403
-    
-    booking.check_and_update_expiry()
-    db.session.commit()
-    
+
     return jsonify({"booking": booking.to_dict()}), 200
 
 #/api/bookings
