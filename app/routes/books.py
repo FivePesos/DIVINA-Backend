@@ -1,10 +1,3 @@
-from flask import Blueprint, request, jsonify
-from datetime import datetime, timezone
-from app import db
-from app.models.books import Booking
-from app.models.store import DivingSchedule
-from app.models.user import UserRole
-from app.utils.jwt_helper import jwt_required
 """
 Booking routes — users book a specific diving schedule
     GET    /api/bookings              - list bookings (admin=all, user=own)
@@ -13,20 +6,29 @@ Booking routes — users book a specific diving schedule
     POST   /api/bookings              - create booking for a schedule
     DELETE /api/bookings/<id>         - cancel booking
 """
-DEFAULT_EXPIRY_DAYS = 7
+
+from flask import Blueprint, request, jsonify
+from datetime import datetime, timezone
+from app import db
+from app.models.books import Booking 
+from app.models.store import DivingSchedule
+from app.models.coupon import Coupon, CouponRedemption
+from app.models.user import UserRole
+from app.utils.jwt_helper import jwt_required
+
 booking_bp = Blueprint("bookings", __name__)
 
 
-#/api/bookings 
-#list all bookings
+# GET /api/bookings
 @booking_bp.route("/bookings", methods=["GET"])
 @jwt_required
 def get_all_bookings():
     """Admin sees all bookings. Regular users see only their own."""
-    user = request.current_user
-    status = request.args.get("status")  # active | cancelled
+    user   = request.current_user
+    status = request.args.get("status")  
 
-    query = Booking.query if user.role == UserRole.ADMIN else Booking.query.filter_by(user_id=user.id)
+    query = Booking.query if user.role == UserRole.ADMIN \
+            else Booking.query.filter_by(user_id=user.id)
 
     if status == "active":
         query = query.filter_by(is_cancelled=False)
@@ -35,11 +37,12 @@ def get_all_bookings():
 
     bookings = query.order_by(Booking.created_at.desc()).all()
     return jsonify({
-        "total": len(bookings),
+        "total":    len(bookings),
         "bookings": [b.to_dict() for b in bookings],
     }), 200
 
-#/api/bookings/my   
+
+# GET /api/bookings/my
 @booking_bp.route("/bookings/my", methods=["GET"])
 @jwt_required
 def my_bookings():
@@ -49,16 +52,17 @@ def my_bookings():
     ).order_by(Booking.created_at.desc()).all()
 
     return jsonify({
-        "total": len(bookings),
+        "total":    len(bookings),
         "bookings": [b.to_dict() for b in bookings],
     }), 200
 
-#/api/bookings/<id>
+
+# GET /api/bookings/<id>
 @booking_bp.route("/bookings/<int:booking_id>", methods=["GET"])
 @jwt_required
 def get_booking(booking_id):
     """Get a specific booking. Users can only view their own."""
-    user = request.current_user
+    user    = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
@@ -68,26 +72,29 @@ def get_booking(booking_id):
 
     return jsonify({"booking": booking.to_dict()}), 200
 
-#/api/bookings
+
+# POST /api/bookings
 @booking_bp.route("/bookings", methods=["POST"])
 @jwt_required
 def create_booking():
     """
-    Book a diving schedule.
+    Book a diving schedule, optionally with a coupon code.
 
     Request body:
     {
         "schedule_id": 1,
-        "slots": 1,
-        "notes": "First time diver"
+        "slots":       1,
+        "notes":       "First time diver",
+        "coupon_code": "DIVE20"    // optional
     }
     """
     user = request.current_user
     data = request.get_json() or {}
 
     schedule_id = data.get("schedule_id")
-    slots = int(data.get("slots", 1))
-    notes = (data.get("notes") or "").strip() or None
+    slots       = int(data.get("slots", 1))
+    notes       = (data.get("notes") or "").strip() or None
+    coupon_code = (data.get("coupon_code") or "").strip().upper() or None
 
     if not schedule_id:
         return jsonify({"error": "schedule_id is required"}), 400
@@ -101,97 +108,101 @@ def create_booking():
         return jsonify({"error": "This schedule has been cancelled"}), 400
     if not schedule.is_active:
         return jsonify({"error": "This schedule is no longer available"}), 400
-
-    # Check if schedule date has passed
     if schedule.date < datetime.now(timezone.utc).date():
         return jsonify({"error": "Cannot book a past schedule"}), 400
-
-    # Check slot availability
     if schedule.is_fully_booked:
-        return jsonify({
-            "error": "This schedule is fully booked",
-            "available_slots": 0,
-        }), 400
+        return jsonify({"error": "This schedule is fully booked", "available_slots": 0}), 400
     if slots > schedule.available_slots:
         return jsonify({
-            "error": f"Not enough slots available. Only {schedule.available_slots} slot(s) left",
+            "error": f"Only {schedule.available_slots} slot(s) left",
             "available_slots": schedule.available_slots,
         }), 400
 
-    # Check if user already booked this schedule
+    # Prevent duplicate booking
     existing = Booking.query.filter_by(
-        user_id=user.id,
-        schedule_id=schedule_id,
-        is_cancelled=False,
+        user_id=user.id, schedule_id=schedule_id, is_cancelled=False
     ).first()
     if existing:
         return jsonify({"error": "You have already booked this schedule"}), 409
 
-    # Create booking and decrease available slots
+    # ── COUPON ────────────────────────────────────────────────────────────────
+    original_price   = schedule.price * slots
+    discount_applied = 0.0
+    final_price      = original_price
+    coupon           = None
+
+    if coupon_code:
+        coupon = Coupon.query.filter_by(code=coupon_code).first()
+        if not coupon:
+            return jsonify({"error": f"Coupon '{coupon_code}' not found"}), 404
+        if not coupon.is_valid:
+            return jsonify({"error": "This coupon is invalid, expired, or exhausted"}), 400
+        if coupon.scope == "store" and schedule.store_id != coupon.store_id:
+            return jsonify({"error": "This coupon is only valid for a specific store"}), 400
+        if coupon.scope == "schedule" and schedule.id != coupon.schedule_id:
+            return jsonify({"error": "This coupon is only valid for a specific schedule"}), 400
+        if coupon.min_price and original_price < coupon.min_price:
+            return jsonify({"error": f"Minimum booking of ₱{coupon.min_price:,.2f} required"}), 400
+
+        user_uses = CouponRedemption.query.filter_by(
+            coupon_id=coupon.id, user_id=user.id
+        ).count()
+        if user_uses >= coupon.uses_per_user:
+            return jsonify({"error": "You have already used this coupon the maximum number of times"}), 400
+
+        discount_applied = coupon.compute_discount(original_price)
+        final_price      = round(original_price - discount_applied, 2)
+
+    # ── CREATE BOOKING ────────────────────────────────────────────────────────
     booking = Booking(
-        user_id=user.id,
-        schedule_id=schedule_id,
-        slots=slots,
-        notes=notes,
+        user_id          = user.id,
+        schedule_id      = schedule_id,
+        slots            = slots,
+        notes            = notes,
+        original_price   = original_price,
+        discount_applied = discount_applied,
+        final_price      = final_price,
     )
     schedule.booked_slots += slots
     db.session.add(booking)
-    db.session.commit()
+    db.session.flush()
 
-    return jsonify({
-        "message": "Booking confirmed!",
-        "booking": booking.to_dict(),
-    }), 201
-
-#/api/bookings/<id>  
-@booking_bp.route("/bookings/<int:booking_id>", methods=["PUT"])
-@jwt_required
-def update_booking(booking_id):
-    """
-    Update a booking's store, notes, or expiry date.
-    Users can only update their own bookings.
-    Cannot update expired or cancelled bookings.
-    """
-    user = request.current_user
-    booking= Booking.query.get(booking_id)
-
-    if not booking:
-        return jsonify({"error": "Booking not found"}), 404
-    if user.role != UserRole.ADMIN and booking.user_id != user.id:
-        return jsonify({"error": "Access denied"}), 403
-    if booking.is_cancelled:
-        return jsonify({"error": "Cannot update a cancelled booking"}), 400
-    if booking.is_expired:
-        return jsonify({"error": "Cannot update an expired booking"}), 400
-    
-    data = request.get_json() or {}
-
-    if data.get("booked_store"):
-        booking.booked_store = data["booked_store"].strip()
-    if "notes" in data:
-        booking.notes = data["notes"].strip() or None
-    if data.get("expires_at"):
-        try:
-            new_expiry = datetime.fromisoformat(data["expires_at"])
-            if new_expiry.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
-                return jsonify({"error": "expires_at must be a future date"}), 400
-            booking.expires_at = new_expiry
-            booking.is_expired = False
-        except ValueError:
-            return jsonify({"error": "Invalid expires_at format. Use ISO format: YYYY-MM-DDTHH:MM:SS"}), 400
+    if coupon:
+        redemption = CouponRedemption(
+            coupon_id        = coupon.id,
+            user_id          = user.id,
+            booking_id       = booking.id,
+            original_price   = original_price,
+            discount_applied = discount_applied,
+            final_price      = final_price,
+        )
+        coupon.total_used += 1
+        db.session.add(redemption)
 
     db.session.commit()
 
-    return jsonify({
-        "message": "Booking updated successfully",
+    response = {
+        "message": "Booking confirmed! 🤿",
         "booking": booking.to_dict(),
-    }), 200
+    }
+    if coupon:
+        response["coupon_applied"] = {
+            "code":             coupon.code,
+            "original_price":   original_price,
+            "discount_applied": discount_applied,
+            "final_price":      final_price,
+            "savings":          f"You saved ₱{discount_applied:,.2f}!",
+        }
 
+    return jsonify(response), 201
+
+
+# DELETE /api/bookings/<id>
 @booking_bp.route("/bookings/<int:booking_id>", methods=["DELETE"])
 @jwt_required
 def cancel_booking(booking_id):
     """Cancel a booking and restore the slot count."""
-    user = request.current_user
+    user    = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
@@ -201,10 +212,11 @@ def cancel_booking(booking_id):
     if booking.is_cancelled:
         return jsonify({"error": "Booking is already cancelled"}), 400
 
-    # Restore slots
-    schedule = booking.schedule
-    if schedule:
-        schedule.booked_slots = max(0, schedule.booked_slots - booking.slots)
+    # Restore slots back to schedule
+    if booking.schedule:
+        booking.schedule.booked_slots = max(
+            0, booking.schedule.booked_slots - booking.slots
+        )
 
     booking.is_cancelled = True
     db.session.commit()
