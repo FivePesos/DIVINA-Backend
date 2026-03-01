@@ -60,49 +60,73 @@ def get_booking(booking_id):
 @jwt_required
 def create_booking():
     """
-    Create a new booking for the logged-in user.
+    Book a diving schedule.
 
     Request body:
     {
-        "booked_store": "Blue Sea Dive Shop",
-        "notes": "Optional notes",
-        "expires_at": "2024-12-31T23:59:59"  // optional, defaults to 7 days from now
+        "schedule_id": 1,
+        "slots": 1,
+        "notes": "First time diver"
     }
     """
     user = request.current_user
     data = request.get_json() or {}
 
-    booked_store = (data.get("booked_store") or "").strip()
-    notes = (data.get("notes") or "").strip()
-    expires_at_str = data.get("expires_at")
+    schedule_id = data.get("schedule_id")
+    slots = int(data.get("slots", 1))
+    notes = (data.get("notes") or "").strip() or None
 
-    if not booked_store:
-        return jsonify({"error": "booked_store is required"}), 400
+    if not schedule_id:
+        return jsonify({"error": "schedule_id is required"}), 400
+    if slots < 1:
+        return jsonify({"error": "slots must be at least 1"}), 400
 
-    # Parse expiry date or default to 7 days from now
-    if expires_at_str:
-        try:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            # Make sure expiry is in the future
-            if expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
-                return jsonify({"error": "expires_at must be a future date"}), 400
-        except ValueError:
-            return jsonify({"error": "Invalid expires_at format. Use ISO format: YYYY-MM-DDTHH:MM:SS"}), 400
-    else:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=DEFAULT_EXPIRY_DAYS)
+    schedule = DivingSchedule.query.get(schedule_id)
+    if not schedule:
+        return jsonify({"error": "Schedule not found"}), 404
+    if schedule.is_cancelled:
+        return jsonify({"error": "This schedule has been cancelled"}), 400
+    if not schedule.is_active:
+        return jsonify({"error": "This schedule is no longer available"}), 400
 
+    # Check if schedule date has passed
+    if schedule.date < datetime.now(timezone.utc).date():
+        return jsonify({"error": "Cannot book a past schedule"}), 400
+
+    # Check slot availability
+    if schedule.is_fully_booked:
+        return jsonify({
+            "error": "This schedule is fully booked",
+            "available_slots": 0,
+        }), 400
+    if slots > schedule.available_slots:
+        return jsonify({
+            "error": f"Not enough slots available. Only {schedule.available_slots} slot(s) left",
+            "available_slots": schedule.available_slots,
+        }), 400
+
+    # Check if user already booked this schedule
+    existing = Booking.query.filter_by(
+        user_id=user.id,
+        schedule_id=schedule_id,
+        is_cancelled=False,
+    ).first()
+    if existing:
+        return jsonify({"error": "You have already booked this schedule"}), 409
+
+    # Create booking and decrease available slots
     booking = Booking(
         user_id=user.id,
-        booked_store=booked_store,
-        notes=notes or None,
-        expires_at=expires_at,
+        schedule_id=schedule_id,
+        slots=slots,
+        notes=notes,
     )
-
+    schedule.booked_slots += slots
     db.session.add(booking)
     db.session.commit()
 
     return jsonify({
-        "message": f"Booking created successfully for '{booked_store}'",
+        "message": "Booking confirmed!",
         "booking": booking.to_dict(),
     }), 201
 
