@@ -8,8 +8,8 @@ Store routes
     DELETE /api/stores/<id>                   - deactivate store (owner or admin) #Done
 
 Schedule routes
-    GET    /api/stores/<id>/schedules         - list schedules for a store
-    POST   /api/stores/<id>/schedules         - add schedule (owner or admin)
+    GET    /api/stores/<id>/schedules         - list schedules for a store # Done
+    POST   /api/stores/<id>/schedules         - add schedule (owner or admin) # Done
     PUT    /api/stores/<id>/schedules/<sid>   - update schedule (owner or admin)
     DELETE /api/stores/<id>/schedules/<sid>   - cancel schedule (owner or admin)
 """
@@ -190,6 +190,7 @@ def deactivate_store(store_id):
     db.session.commit()
     return jsonify({"message": f"Store '{store.name}' has been deactivated"}), 200
 
+###################################### SCHEDULES ####################################
 @store_bp.route("/stores/<int:store_id>/schedules", methods=["GET"])
 def get_schedules(store_id):
     """
@@ -217,3 +218,93 @@ def get_schedules(store_id):
         "total": len(schedules),
         "schedules": [s.to_dict() for s in schedules],
     }), 200
+
+@store_bp.route("/stores/<int:store_id>/schedules", methods=["POST"])
+@jwt_required
+def create_schedule(store_id):
+    """
+    Add a diving schedule to a store. Only the store owner or admin.
+
+    Request body:
+    {
+        "title": "Morning Dive",
+        "description": "Beginner friendly reef dive",
+        "date": "2026-03-15",
+        "start_time": "08:00",
+        "end_time": "11:00",
+        "price": 1500.00,
+        "max_slots": 10
+    }
+    """
+    user = request.current_user
+    store = Store.query.get(store_id)
+
+    if not store:
+        return jsonify({"error": "Store not found"}), 404
+    if not _is_store_owner_or_admin(user, store):
+        return jsonify({"error": "Access denied — only the store owner or admin can add schedules"}), 403
+
+    data = request.get_json() or {}
+
+    # Validate required fields
+    title = (data.get("title") or "").strip()
+    date_str = data.get("date")
+    start_time_str = data.get("start_time")
+    end_time_str = data.get("end_time")
+    price = data.get("price", 0.0)
+    max_slots = data.get("max_slots", 10)
+
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+    if not date_str:
+        return jsonify({"error": "date is required (YYYY-MM-DD)"}), 400
+    if not start_time_str:
+        return jsonify({"error": "start_time is required (HH:MM)"}), 400
+    if not end_time_str:
+        return jsonify({"error": "end_time is required (HH:MM)"}), 400
+
+    # Parse date
+    try:
+        schedule_date = date.fromisoformat(date_str)
+        if schedule_date < datetime.now(timezone.utc).date():
+            return jsonify({"error": "Schedule date must be in the future"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+    # Parse times
+    try:
+        start_time = time.fromisoformat(start_time_str)
+        end_time = time.fromisoformat(end_time_str)
+        if end_time <= start_time:
+            return jsonify({"error": "end_time must be after start_time"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid time format. Use HH:MM"}), 400
+
+    # Validate price and slots
+    try:
+        price = float(price)
+        max_slots = int(max_slots)
+        if price < 0:
+            return jsonify({"error": "Price cannot be negative"}), 400
+        if max_slots < 1:
+            return jsonify({"error": "max_slots must be at least 1"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid price or max_slots value"}), 400
+
+    schedule = DivingSchedule(
+        store_id=store_id,
+        title=title,
+        description=(data.get("description") or "").strip() or None,
+        date=schedule_date,
+        start_time=start_time,
+        end_time=end_time,
+        price=price,
+        max_slots=max_slots,
+    )
+    db.session.add(schedule)
+    db.session.commit()
+
+    return jsonify({
+        "message": f"Schedule '{title}' added successfully",
+        "schedule": schedule.to_dict(),
+    }), 201
