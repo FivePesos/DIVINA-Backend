@@ -180,15 +180,13 @@ def cancel_booking(booking_id):
         "booking": booking.to_dict(),
     }), 200
 
-@booking_bp.route("/booking/my", methods=["GET"])
+@booking_bp.route("/bookings/my", methods=["GET"])
 @jwt_required
 def my_bookings():
-    user = request.current_user
-    bookings = Booking.query.filter_by(user_id=user.id).order_by(Booking.created_at.desc()).all()
-
-    for b in bookings:
-        b.check_and_update_expiry()
-    db.session.commit()
+    """Get current logged-in user's bookings."""
+    bookings = Booking.query.filter_by(
+        user_id=request.current_user.id
+    ).order_by(Booking.created_at.desc()).all()
 
     return jsonify({
         "total": len(bookings),
