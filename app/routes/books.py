@@ -1,19 +1,17 @@
-from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify
+from datetime import datetime, timezone
 from app import db
 from app.models.books import Booking
+from app.models.store import DivingSchedule
 from app.models.user import UserRole
 from app.utils.jwt_helper import jwt_required
 """
-
-Booking routes
-    GET    /api/bookings              - list all bookings (admin) or own bookings (user) #Done
-    GET    /api/bookings/<id>         - get a specific booking #Done
-    POST   /api/bookings              - create a new booking #Done
-    PUT    /api/bookings/<id>         - update a booking #Done
-    DELETE /api/bookings/<id>         - cancel a booking #Done
-    GET    /api/bookings/my           - get current user's bookings #Done
-
+Booking routes — users book a specific diving schedule
+    GET    /api/bookings              - list bookings (admin=all, user=own)
+    GET    /api/bookings/my           - current user's bookings
+    GET    /api/bookings/<id>         - get specific booking
+    POST   /api/bookings              - create booking for a schedule
+    DELETE /api/bookings/<id>         - cancel booking
 """
 DEFAULT_EXPIRY_DAYS = 7
 booking_bp = Blueprint("bookings", __name__)
@@ -22,57 +20,52 @@ booking_bp = Blueprint("bookings", __name__)
 #/api/bookings 
 #list all bookings
 @booking_bp.route("/bookings", methods=["GET"])
+@jwt_required
 def get_all_bookings():
-    """
-    Admin: returns all bookings.
-    Regular user / dive operator: returns only their own bookings.
-    """
+    """Admin sees all bookings. Regular users see only their own."""
     user = request.current_user
-    status = request.args.get("status") #?status=
+    status = request.args.get("status")  # active | cancelled
 
-    if user.role == UserRole.ADMIN:
-        query = Booking.query
-    else:
-        query = Booking.query.filter_by(user_id=user.id)
+    query = Booking.query if user.role == UserRole.ADMIN else Booking.query.filter_by(user_id=user.id)
 
     if status == "active":
-        query = query.filter_by(is_expired=False, is_cancelled=False) # returns only bookings where is_expired=False AND is_cancelled=False
-    elif status == "expired":
-        query = query.filter_by(is_expired=True) # returns only bookings where is_expired=True
+        query = query.filter_by(is_cancelled=False)
     elif status == "cancelled":
-        query = query.filter_by(is_cancelled=True) # return only booking where is_cancelled=True
+        query = query.filter_by(is_cancelled=True)
 
     bookings = query.order_by(Booking.created_at.desc()).all()
+    return jsonify({
+        "total": len(bookings),
+        "bookings": [b.to_dict() for b in bookings],
+    }), 200
 
-     # Auto-update expiry status before returning
-    for b in bookings:
-        b.check_and_update_expiry()
-    db.session.commit()
+#/api/bookings/my   
+@booking_bp.route("/bookings/my", methods=["GET"])
+@jwt_required
+def my_bookings():
+    """Get current logged-in user's bookings."""
+    bookings = Booking.query.filter_by(
+        user_id=request.current_user.id
+    ).order_by(Booking.created_at.desc()).all()
 
     return jsonify({
         "total": len(bookings),
         "bookings": [b.to_dict() for b in bookings],
     }), 200
 
-
 #/api/bookings/<id>
-@booking_bp("/bookings/<int:booking_id>", methods=["GET"])
+@booking_bp.route("/bookings/<int:booking_id>", methods=["GET"])
 @jwt_required
 def get_booking(booking_id):
-    """Get a specific booking by ID. Users can only view their own."""
+    """Get a specific booking. Users can only view their own."""
     user = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
-        return jsonify({"error", "Booking not found"}), 404
-    
-    #Only admin can view
+        return jsonify({"error": "Booking not found"}), 404
     if user.role != UserRole.ADMIN and booking.user_id != user.id:
         return jsonify({"error": "Access denied"}), 403
-    
-    booking.check_and_update_expiry()
-    db.session.commit()
-    
+
     return jsonify({"booking": booking.to_dict()}), 200
 
 #/api/bookings
@@ -80,49 +73,73 @@ def get_booking(booking_id):
 @jwt_required
 def create_booking():
     """
-    Create a new booking for the logged-in user.
+    Book a diving schedule.
 
     Request body:
     {
-        "booked_store": "Blue Sea Dive Shop",
-        "notes": "Optional notes",
-        "expires_at": "2024-12-31T23:59:59"  // optional, defaults to 7 days from now
+        "schedule_id": 1,
+        "slots": 1,
+        "notes": "First time diver"
     }
     """
     user = request.current_user
     data = request.get_json() or {}
 
-    booked_store = (data.get("booked_store") or "").strip()
-    notes = (data.get("notes") or "").strip()
-    expires_at_str = data.get("expires_at")
+    schedule_id = data.get("schedule_id")
+    slots = int(data.get("slots", 1))
+    notes = (data.get("notes") or "").strip() or None
 
-    if not booked_store:
-        return jsonify({"error": "booked_store is required"}), 400
+    if not schedule_id:
+        return jsonify({"error": "schedule_id is required"}), 400
+    if slots < 1:
+        return jsonify({"error": "slots must be at least 1"}), 400
 
-    # Parse expiry date or default to 7 days from now
-    if expires_at_str:
-        try:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            # Make sure expiry is in the future
-            if expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
-                return jsonify({"error": "expires_at must be a future date"}), 400
-        except ValueError:
-            return jsonify({"error": "Invalid expires_at format. Use ISO format: YYYY-MM-DDTHH:MM:SS"}), 400
-    else:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=DEFAULT_EXPIRY_DAYS)
+    schedule = DivingSchedule.query.get(schedule_id)
+    if not schedule:
+        return jsonify({"error": "Schedule not found"}), 404
+    if schedule.is_cancelled:
+        return jsonify({"error": "This schedule has been cancelled"}), 400
+    if not schedule.is_active:
+        return jsonify({"error": "This schedule is no longer available"}), 400
 
+    # Check if schedule date has passed
+    if schedule.date < datetime.now(timezone.utc).date():
+        return jsonify({"error": "Cannot book a past schedule"}), 400
+
+    # Check slot availability
+    if schedule.is_fully_booked:
+        return jsonify({
+            "error": "This schedule is fully booked",
+            "available_slots": 0,
+        }), 400
+    if slots > schedule.available_slots:
+        return jsonify({
+            "error": f"Not enough slots available. Only {schedule.available_slots} slot(s) left",
+            "available_slots": schedule.available_slots,
+        }), 400
+
+    # Check if user already booked this schedule
+    existing = Booking.query.filter_by(
+        user_id=user.id,
+        schedule_id=schedule_id,
+        is_cancelled=False,
+    ).first()
+    if existing:
+        return jsonify({"error": "You have already booked this schedule"}), 409
+
+    # Create booking and decrease available slots
     booking = Booking(
         user_id=user.id,
-        booked_store=booked_store,
-        notes=notes or None,
-        expires_at=expires_at,
+        schedule_id=schedule_id,
+        slots=slots,
+        notes=notes,
     )
-
+    schedule.booked_slots += slots
     db.session.add(booking)
     db.session.commit()
 
     return jsonify({
-        "message": f"Booking created successfully for '{booked_store}'",
+        "message": "Booking confirmed!",
         "booking": booking.to_dict(),
     }), 201
 
@@ -173,39 +190,26 @@ def update_booking(booking_id):
 @booking_bp.route("/bookings/<int:booking_id>", methods=["DELETE"])
 @jwt_required
 def cancel_booking(booking_id):
-    """
-    Cancel a booking. Users can only cancel their own.
-    Admins can cancel any booking.
-    """
-    user =request.current_user
+    """Cancel a booking and restore the slot count."""
+    user = request.current_user
     booking = Booking.query.get(booking_id)
 
     if not booking:
-        return jsonify({"error": "Booking not found"}), 403 
+        return jsonify({"error": "Booking not found"}), 404
     if user.role != UserRole.ADMIN and booking.user_id != user.id:
-        return jsonify({"error": "Access Denied"}), 403
+        return jsonify({"error": "Access denied"}), 403
     if booking.is_cancelled:
         return jsonify({"error": "Booking is already cancelled"}), 400
-    
+
+    # Restore slots
+    schedule = booking.schedule
+    if schedule:
+        schedule.booked_slots = max(0, schedule.booked_slots - booking.slots)
+
     booking.is_cancelled = True
     db.session.commit()
 
     return jsonify({
         "message": "Booking cancelled successfully",
         "booking": booking.to_dict(),
-    }), 200
-
-@booking_bp.route("/booking/my", methods=["GET"])
-@jwt_required
-def my_bookings():
-    user = request.current_user
-    bookings = Booking.query.filter_by(user_id=user.id).order_by(Booking.created_at.desc()).all()
-
-    for b in bookings:
-        b.check_and_update_expiry()
-    db.session.commit()
-
-    return jsonify({
-        "total": len(bookings),
-        "bookings": [b.to_dict() for b in bookings],
     }), 200

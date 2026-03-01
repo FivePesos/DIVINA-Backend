@@ -25,10 +25,14 @@ def create_app(config_name="default"):
     from app.routes.auth import auth_bp
     from app.routes.protected import protected_bp
     from app.routes.admin import admin_bp
-    #add import here
+    from app.routes.books import booking_bp
+    from app.routes.store import store_bp
+
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(protected_bp, url_prefix="/api")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
+    app.register_blueprint(booking_bp, url_prefix="/api/")
+    app.register_blueprint(store_bp, url_prefix="/api")
 
     with app.app_context():
         db.create_all()
