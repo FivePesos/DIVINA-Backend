@@ -1,0 +1,22 @@
+meta {
+  name: Login
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "johndoe@email.com",
+    "password": "secret123"
+  }
+}
+
+vars:pre-request {
+  base_url: 127.0.0.1:5000
+}

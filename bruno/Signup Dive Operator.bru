@@ -1,0 +1,25 @@
+meta {
+  name: Signup Dive Operator
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/auth/signup
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  first_name: Maria
+  last_name: Santos
+  email: maria@blueseadivers.com
+  password: secret123
+  is_dive_operator: true
+  bir_document: @file(/home/jm/Downloads/anne.jpg)
+  certification_document: @file(/home/jm/Downloads/andrea.jpg)
+}
+
+vars:pre-request {
+  base_url: 127.0.0.1:5000
+}
