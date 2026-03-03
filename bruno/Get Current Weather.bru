@@ -1,0 +1,19 @@
+meta {
+  name: Get Current Weather
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/weather/current?q=Cebu
+  body: none
+  auth: none
+}
+
+params:query {
+  q: Cebu
+}
+
+vars:pre-request {
+  base_url: 127.0.0.1:5000
+}

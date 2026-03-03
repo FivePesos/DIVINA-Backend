@@ -1,0 +1,19 @@
+meta {
+  name: Identify Species
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/api/identify
+  body: multipartForm
+  auth: none
+}
+
+body:multipart-form {
+  image: @file(/home/jm/Downloads/thresh.jpg)
+}
+
+vars:pre-request {
+  base_url: 127.0.0.1:5000
+}

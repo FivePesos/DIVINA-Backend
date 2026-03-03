@@ -1,0 +1,21 @@
+meta {
+  name: Get Marine Weather
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{base_url}}/api/weather/marine?q=Cebu&days=1&tides=yes
+  body: none
+  auth: none
+}
+
+params:query {
+  q: Cebu
+  days: 1
+  tides: yes
+}
+
+vars:pre-request {
+  base_url: 127.0.0.1:5000
+}
