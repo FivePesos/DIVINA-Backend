@@ -33,7 +33,10 @@ def identify():
     except Exception:
         return jsonify({"error": "Could not read image"}), 400
 
-    prediction = classifier.predict(image)
+    try:
+        prediction = classifier.predict(image)
+    except Exception:
+        return jsonify({"error": "Could not classify image"}), 500
 
     if prediction["class_id"] == -1:
         return jsonify({
